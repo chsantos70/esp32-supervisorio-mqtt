@@ -1,1 +1,636 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#020617" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="ESP32 MQTT" />
+  <link id="pwa-manifest" rel="manifest" />
+  <title>Supervisório IoT Mobile — ESP32 MQTT</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+  <style>
+    button, [role="button"] {
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+    }
+    input, select {
+      font-size: 16px;
+    }
+    @media (min-width: 768px) {
+      input, select {
+        font-size: 14px;
+      }
+    }
+    .safe-bottom {
+      padding-bottom: calc(0.75rem + env(safe-area-inset-bottom));
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen pb-24 md:pb-8">
 
+  <header class="sticky top-0 z-30 bg-slate-950/90 backdrop-blur border-b border-slate-800 px-4 py-3">
+    <div class="max-w-6xl mx-auto flex items-center justify-between gap-2">
+      <div class="min-w-0">
+        <div class="flex items-center gap-2">
+          <span id="statusDot" class="w-2.5 h-2.5 rounded-full bg-rose-500 shrink-0"></span>
+          <h1 class="text-base md:text-xl font-bold text-white truncate">Supervisório ESP32</h1>
+        </div>
+        <p id="subHeaderInfo" class="text-[11px] md:text-xs text-slate-400 truncate">MQTT WebSockets • Desconectado</p>
+      </div>
+
+      <div class="flex items-center gap-2 shrink-0">
+        <button id="btnInstall" onclick="installPwaApp()" class="hidden px-3 py-2 rounded-xl text-xs font-bold bg-sky-600 active:scale-95 text-white transition">
+          Instalar App
+        </button>
+        <button id="btnSim" onclick="toggleSimMode()" class="px-3 py-2 rounded-xl text-xs font-bold bg-slate-800 active:scale-95 border border-slate-700 text-slate-200 transition">
+          Demo: OFF
+        </button>
+        <button id="btnQuickConn" onclick="quickConnectToggle()" class="px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-600 active:scale-95 text-white transition">
+          Conectar
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-6xl mx-auto px-4 pt-4 space-y-6">
+
+    <details id="sec-config" class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden group">
+      <summary class="list-none cursor-pointer px-4 py-3.5 flex items-center justify-between select-none active:bg-slate-800/60">
+        <div class="flex items-center gap-2.5">
+          <span class="text-base">⚙️</span>
+          <div>
+            <div class="text-sm font-semibold text-white">Conexão Broker MQTT</div>
+            <div id="brokerSummary" class="text-xs text-slate-400">broker.hivemq.com:8884 • esp32/automacao</div>
+          </div>
+        </div>
+        <span class="text-xs font-semibold text-sky-400 group-open:hidden">Configurar</span>
+        <span class="text-xs font-semibold text-slate-400 hidden group-open:inline">Ocultar</span>
+      </summary>
+
+      <div class="px-4 pb-4 pt-2 border-t border-slate-800/80 grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div>
+          <label class="block text-xs text-slate-400 mb-1">Broker (Host)</label>
+          <input id="brokerHost" type="text" value="broker.hivemq.com" oninput="updateBrokerSummary()" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-white" />
+        </div>
+        <div>
+          <label class="block text-xs text-slate-400 mb-1">Porta WebSocket (WSS)</label>
+          <input id="brokerPort" type="number" value="8884" oninput="updateBrokerSummary()" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-white" />
+        </div>
+        <div>
+          <label class="block text-xs text-slate-400 mb-1">Tópico Base</label>
+          <input id="baseTopic" type="text" value="esp32/automacao" oninput="updateBrokerSummary()" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-white" />
+        </div>
+        <div class="sm:col-span-3 flex flex-wrap gap-2 pt-1">
+          <button id="btnConnect" onclick="connectMqtt()" class="flex-1 min-w-[140px] bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-semibold py-2.5 px-4 rounded-xl text-sm transition">
+            Conectar ao Broker
+          </button>
+          <button id="btnDisconnect" onclick="disconnectMqtt()" disabled class="bg-slate-800 hover:bg-slate-700 disabled:opacity-40 active:scale-95 text-slate-200 font-semibold py-2.5 px-4 rounded-xl text-sm transition">
+            Desconectar
+          </button>
+          <button onclick="resetAllLabels()" class="bg-slate-800/80 hover:bg-slate-700 active:scale-95 text-slate-300 font-medium py-2.5 px-3.5 rounded-xl text-xs border border-slate-700 transition">
+            Restaurar Nomes
+          </button>
+        </div>
+      </div>
+    </details>
+
+    <section id="sec-reles" class="space-y-3 scroll-mt-16">
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="text-base md:text-lg font-bold text-white">Saídas a Relé (6 Canais)</h2>
+          <p class="text-xs text-slate-400">Toque no nome para personalizar • ON / OFF / PULSO (1s)</p>
+        </div>
+        <span id="activeRelaysCount" class="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-900 border border-slate-800 text-slate-300">
+          0 / 6 ativos
+        </span>
+      </div>
+      <div id="relaysGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5"></div>
+    </section>
+
+    <section id="sec-sensores" class="space-y-3 scroll-mt-16">
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="text-base md:text-lg font-bold text-white">Sensores e Analógicas (0–3,3V)</h2>
+          <p class="text-xs text-slate-400">HC-SR04 (TRIG 27 / ECHO 14) • ADC1 (GPIO 34 e 35)</p>
+        </div>
+        <span id="rssiBadge" class="text-xs font-mono px-2.5 py-1 rounded-full bg-slate-900 border border-slate-800 text-slate-400">
+          RSSI: -- dBm
+        </span>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+        <div class="bg-gradient-to-br from-slate-900 to-slate-900/70 border border-amber-500/25 rounded-2xl p-4 space-y-3">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-semibold uppercase tracking-wider text-amber-400">Ultrassônico</span>
+            <span class="text-[11px] font-mono text-slate-400">TRIG 27 • ECHO 14</span>
+          </div>
+          <div class="flex items-baseline justify-between">
+            <div id="distCm" class="text-3xl font-extrabold text-white tracking-tight">--.- <span class="text-base font-semibold text-amber-400">cm</span></div>
+            <div id="distM" class="text-xs font-mono text-slate-400">--.-- m</div>
+          </div>
+          <div class="w-full h-2.5 bg-slate-950 rounded-full overflow-hidden border border-slate-800">
+            <div id="distBar" class="h-full bg-gradient-to-r from-emerald-400 via-amber-400 to-rose-500 rounded-full transition-all duration-300" style="width: 0%"></div>
+          </div>
+          <div class="flex justify-between text-[11px] text-slate-500">
+            <span>0 cm</span>
+            <span>Faixa visual: 400 cm</span>
+          </div>
+        </div>
+
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-semibold uppercase tracking-wider text-cyan-400">Analógica AI1</span>
+            <span class="text-[11px] font-mono text-slate-400">GPIO 34 • máx 3,3V</span>
+          </div>
+          <div class="flex items-baseline justify-between">
+            <div id="ai1Volt" class="text-3xl font-extrabold text-white tracking-tight">0.00 <span class="text-base font-semibold text-cyan-400">V</span></div>
+            <div id="ai1Raw" class="text-xs font-mono text-slate-400">0 / 4095</div>
+          </div>
+          <div class="w-full h-2.5 bg-slate-950 rounded-full overflow-hidden border border-slate-800">
+            <div id="ai1Bar" class="h-full bg-gradient-to-r from-cyan-500 to-sky-400 rounded-full transition-all duration-300" style="width: 0%"></div>
+          </div>
+          <div class="flex justify-between text-[11px] text-slate-500">
+            <span>0.00 V</span>
+            <span id="ai1Pct">0%</span>
+            <span>3.30 V</span>
+          </div>
+        </div>
+
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-semibold uppercase tracking-wider text-indigo-400">Analógica AI2</span>
+            <span class="text-[11px] font-mono text-slate-400">GPIO 35 • máx 3,3V</span>
+          </div>
+          <div class="flex items-baseline justify-between">
+            <div id="ai2Volt" class="text-3xl font-extrabold text-white tracking-tight">0.00 <span class="text-base font-semibold text-indigo-400">V</span></div>
+            <div id="ai2Raw" class="text-xs font-mono text-slate-400">0 / 4095</div>
+          </div>
+          <div class="w-full h-2.5 bg-slate-950 rounded-full overflow-hidden border border-slate-800">
+            <div id="ai2Bar" class="h-full bg-gradient-to-r from-indigo-500 to-violet-400 rounded-full transition-all duration-300" style="width: 0%"></div>
+          </div>
+          <div class="flex justify-between text-[11px] text-slate-500">
+            <span>0.00 V</span>
+            <span id="ai2Pct">0%</span>
+            <span>3.30 V</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="space-y-3">
+      <h2 class="text-base md:text-lg font-bold text-white">Entradas Digitais (4 Canais)</h2>
+      <div id="diGrid" class="grid grid-cols-2 lg:grid-cols-4 gap-3"></div>
+    </section>
+
+    <section class="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-2">
+      <div class="flex items-center justify-between">
+        <h2 class="text-sm font-semibold text-slate-300">Log de Mensagens MQTT</h2>
+        <button onclick="clearLog()" class="text-xs font-medium px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300">
+          Limpar
+        </button>
+      </div>
+      <pre id="mqttLog" class="bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-slate-300 h-36 overflow-y-auto font-mono leading-relaxed"></pre>
+    </section>
+
+  </main>
+
+  <nav class="md:hidden fixed bottom-0 inset-x-0 z-30 bg-slate-950/95 backdrop-blur border-t border-slate-800 safe-bottom">
+    <div class="grid grid-cols-3 text-center">
+      <a href="#sec-reles" class="py-2.5 text-xs font-semibold text-slate-300 active:text-emerald-400 flex flex-col items-center gap-0.5">
+        <span>🔌</span>
+        <span>Relés</span>
+      </a>
+      <a href="#sec-sensores" class="py-2.5 text-xs font-semibold text-slate-300 active:text-cyan-400 flex flex-col items-center gap-0.5">
+        <span>📡</span>
+        <span>Sensores</span>
+      </a>
+      <button onclick="openConfigSection()" class="py-2.5 text-xs font-semibold text-slate-300 active:text-amber-400 flex flex-col items-center gap-0.5">
+        <span>⚙️</span>
+        <span>MQTT</span>
+      </button>
+    </div>
+  </nav>
+
+  <script>
+    const RELAY_GPIOS = [23, 19, 18, 5, 17, 16];
+    const DI_GPIOS = [32, 33, 25, 26];
+    const STORAGE_KEY = "esp32_mobile_relay_names_v1";
+
+    let client = null;
+    let simMode = false;
+    let simInterval = null;
+    let relayStates = [false, false, false, false, false, false];
+    let diStates = [0, 0, 0, 0];
+    let relayNames = loadRelayNames();
+    let deferredInstallPrompt = null;
+
+    // Configura Manifesto PWA e Service Worker embutido (requer HTTPS ou localhost)
+    (function setupPwa() {
+      const svgIcon = encodeURIComponent(
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192"><rect width="192" height="192" rx="40" fill="#0f172a"/><circle cx="96" cy="96" r="52" fill="#10b981" fill-opacity="0.2" stroke="#10b981" stroke-width="8"/><text x="96" y="112" font-size="52" text-anchor="middle" fill="#ffffff" font-family="sans-serif">⚡</text></svg>'
+      );
+      const manifestObj = {
+        name: "Supervisório ESP32 MQTT",
+        short_name: "ESP32 MQTT",
+        start_url: ".",
+        display: "standalone",
+        background_color: "#020617",
+        theme_color: "#020617",
+        icons: [
+          { src: `data:image/svg+xml,${svgIcon}`, sizes: "192x192", type: "image/svg+xml" },
+          { src: `data:image/svg+xml,${svgIcon}`, sizes: "512x512", type: "image/svg+xml" }
+        ]
+      };
+      const blob = new Blob([JSON.stringify(manifestObj)], { type: "application/json" });
+      document.getElementById("pwa-manifest").setAttribute("href", URL.createObjectURL(blob));
+
+      if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
+        const swCode = `
+          self.addEventListener("install", (e) => self.skipWaiting());
+          self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
+        `;
+        const swBlob = new Blob([swCode], { type: "application/javascript" });
+        navigator.serviceWorker.register(URL.createObjectURL(swBlob)).catch(() => {});
+      }
+    })();
+
+    window.addEventListener("beforeinstallprompt", (e) => {
+      e.preventDefault();
+      deferredInstallPrompt = e;
+      document.getElementById("btnInstall").classList.remove("hidden");
+    });
+
+    async function installPwaApp() {
+      if (!deferredInstallPrompt) return;
+      deferredInstallPrompt.prompt();
+      await deferredInstallPrompt.userChoice;
+      deferredInstallPrompt = null;
+      document.getElementById("btnInstall").classList.add("hidden");
+    }
+
+    function loadRelayNames() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+        if (Array.isArray(saved) && saved.length === 6) return saved;
+      } catch (_) {}
+      return RELAY_GPIOS.map((_, idx) => `Relé ${idx + 1}`);
+    }
+
+    function saveRelayNames() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(relayNames));
+      } catch (_) {}
+    }
+
+    function renameRelay(idx) {
+      const current = relayNames[idx];
+      const next = prompt(`Novo nome para o Relé ${idx + 1} (GPIO ${RELAY_GPIOS[idx]}):`, current);
+      if (next && next.trim()) {
+        relayNames[idx] = next.trim().slice(0, 22);
+        saveRelayNames();
+        renderRelays();
+      }
+    }
+
+    function resetAllLabels() {
+      relayNames = RELAY_GPIOS.map((_, idx) => `Relé ${idx + 1}`);
+      saveRelayNames();
+      renderRelays();
+      logMsg("Nomes dos relés restaurados para o padrão.");
+    }
+
+    function updateBrokerSummary() {
+      const host = document.getElementById("brokerHost").value.trim() || "broker.hivemq.com";
+      const port = document.getElementById("brokerPort").value.trim() || "8884";
+      const base = document.getElementById("baseTopic").value.trim() || "esp32/automacao";
+      document.getElementById("brokerSummary").textContent = `${host}:${port} • ${base}`;
+    }
+
+    function openConfigSection() {
+      const details = document.getElementById("sec-config");
+      details.open = true;
+      details.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    function logMsg(text) {
+      const el = document.getElementById("mqttLog");
+      const time = new Date().toLocaleTimeString("pt-BR");
+      el.textContent += `[${time}] ${text}\n`;
+      el.scrollTop = el.scrollHeight;
+    }
+
+    function clearLog() {
+      document.getElementById("mqttLog").textContent = "";
+    }
+
+    function setConnectionBadge(stateText, connected) {
+      const dot = document.getElementById("statusDot");
+      const sub = document.getElementById("subHeaderInfo");
+      const btnQuick = document.getElementById("btnQuickConn");
+      const base = document.getElementById("baseTopic").value.trim() || "esp32/automacao";
+
+      dot.className = connected
+        ? "w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0"
+        : "w-2.5 h-2.5 rounded-full bg-rose-500 shrink-0";
+
+      sub.textContent = `${base} • ${stateText}`;
+      btnQuick.textContent = connected ? "Sair" : "Conectar";
+      btnQuick.className = connected
+        ? "px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-800 active:scale-95 border border-slate-700 text-slate-200 transition"
+        : "px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-600 active:scale-95 text-white transition";
+
+      document.getElementById("btnConnect").disabled = connected;
+      document.getElementById("btnDisconnect").disabled = !connected;
+    }
+
+    function quickConnectToggle() {
+      if (client && client.connected) {
+        disconnectMqtt();
+      } else {
+        connectMqtt();
+      }
+    }
+
+    function renderRelays() {
+      const grid = document.getElementById("relaysGrid");
+      grid.innerHTML = "";
+      const activeCount = relayStates.filter(Boolean).length;
+      document.getElementById("activeRelaysCount").textContent = `${activeCount} / 6 ativos`;
+
+      for (let i = 0; i < RELAY_GPIOS.length; i++) {
+        const isOn = relayStates[i];
+        const card = document.createElement("div");
+        card.className = `rounded-2xl p-4 border transition flex flex-col gap-3.5 ${
+          isOn
+            ? "bg-emerald-950/35 border-emerald-500/50 shadow-lg shadow-emerald-950/30"
+            : "bg-slate-900 border-slate-800"
+        }`;
+
+        card.innerHTML = `
+          <div class="flex items-center justify-between gap-2">
+            <button onclick="renameRelay(${i})" title="Toque para renomear" class="text-left group min-w-0">
+              <div class="font-bold text-white text-sm truncate group-hover:text-emerald-300 transition">
+                ${relayNames[i]} <span class="text-[11px] text-slate-500 font-normal">✎</span>
+              </div>
+              <div class="text-[11px] font-mono text-slate-400">GPIO ${RELAY_GPIOS[i]}</div>
+            </button>
+
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold shrink-0 ${
+              isOn
+                ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                : "bg-slate-800 text-slate-400 border border-slate-700"
+            }">
+              <span class="w-2 h-2 rounded-full ${isOn ? "bg-emerald-400" : "bg-slate-500"}"></span>
+              ${isOn ? "ON" : "OFF"}
+            </span>
+          </div>
+
+          <div class="grid grid-cols-3 gap-2">
+            <button onclick="sendRelayCmd(${i + 1}, 'ON')" class="py-2.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white transition">
+              LIGAR
+            </button>
+            <button onclick="sendRelayCmd(${i + 1}, 'OFF')" class="py-2.5 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 active:scale-95 text-white transition">
+              DESLIGAR
+            </button>
+            <button onclick="sendRelayCmd(${i + 1}, 'PULSE')" class="py-2.5 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-500 active:scale-95 text-white transition">
+              PULSO
+            </button>
+          </div>
+        `;
+        grid.appendChild(card);
+      }
+    }
+
+    function renderDigitalInputs(arr = diStates) {
+      diStates = arr.map((v) => (Number(v) === 1 ? 1 : 0));
+      const grid = document.getElementById("diGrid");
+      grid.innerHTML = "";
+
+      for (let i = 0; i < DI_GPIOS.length; i++) {
+        const active = diStates[i] === 1;
+        const card = document.createElement("div");
+        card.className = `rounded-2xl p-3.5 border flex items-center justify-between transition ${
+          active
+            ? "bg-sky-950/35 border-sky-500/45"
+            : "bg-slate-900 border-slate-800"
+        }`;
+        card.innerHTML = `
+          <div>
+            <div class="text-sm font-bold text-white">DI ${i + 1}</div>
+            <div class="text-[11px] font-mono text-slate-400">GPIO ${DI_GPIOS[i]}</div>
+          </div>
+          <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${
+            active
+              ? "bg-sky-500/20 text-sky-300 border border-sky-500/35"
+              : "bg-slate-800 text-slate-400 border border-slate-700"
+          }">
+            <span class="w-2 h-2 rounded-full ${active ? "bg-sky-400" : "bg-slate-500"}"></span>
+            ${active ? "1" : "0"}
+          </span>
+        `;
+        grid.appendChild(card);
+      }
+    }
+
+    function updateAnalogDisplay(index, rawValue, voltValue) {
+      const raw = Math.max(0, Math.min(4095, Number(rawValue) || 0));
+      const volt = voltValue !== undefined && voltValue !== null
+        ? Math.max(0, Math.min(3.3, Number(voltValue)))
+        : (raw / 4095) * 3.3;
+
+      const pct = Math.max(0, Math.min(100, (volt / 3.3) * 100));
+      document.getElementById(`ai${index}Volt`).innerHTML = `${volt.toFixed(2)} <span class="text-base font-semibold ${index === 1 ? "text-cyan-400" : "text-indigo-400"}">V</span>`;
+      document.getElementById(`ai${index}Raw`).textContent = `${raw} / 4095`;
+      document.getElementById(`ai${index}Bar`).style.width = `${pct.toFixed(1)}%`;
+      document.getElementById(`ai${index}Pct`).textContent = `${Math.round(pct)}%`;
+    }
+
+    function updateDistanceDisplay(distCm) {
+      const num = Number(distCm);
+      const elCm = document.getElementById("distCm");
+      const elM = document.getElementById("distM");
+      const bar = document.getElementById("distBar");
+
+      if (!Number.isNaN(num) && num >= 0) {
+        elCm.innerHTML = `${num.toFixed(1)} <span class="text-base font-semibold text-amber-400">cm</span>`;
+        elM.textContent = `${(num / 100).toFixed(2)} m`;
+        const pct = Math.max(0, Math.min(100, (num / 400) * 100));
+        bar.style.width = `${pct.toFixed(1)}%`;
+      } else {
+        elCm.innerHTML = `--.- <span class="text-base font-semibold text-amber-400">cm</span>`;
+        elM.textContent = `--.-- m`;
+        bar.style.width = `0%`;
+      }
+    }
+
+    function sendRelayCmd(relayNum, cmd) {
+      const base = document.getElementById("baseTopic").value.trim() || "esp32/automacao";
+      const topic = `${base}/rele/${relayNum}/set`;
+
+      if (simMode) {
+        if (cmd === "ON") relayStates[relayNum - 1] = true;
+        else if (cmd === "OFF") relayStates[relayNum - 1] = false;
+        else if (cmd === "PULSE") {
+          relayStates[relayNum - 1] = true;
+          renderRelays();
+          setTimeout(() => {
+            relayStates[relayNum - 1] = false;
+            renderRelays();
+          }, 1000);
+          logMsg(`[DEMO] ${relayNames[relayNum - 1]} → PULSO (1s)`);
+          return;
+        }
+        renderRelays();
+        logMsg(`[DEMO] ${relayNames[relayNum - 1]} → ${cmd}`);
+        return;
+      }
+
+      if (!client || !client.connected) {
+        logMsg("Aviso: conecte ao broker MQTT ou ative o modo Demo.");
+        return;
+      }
+      client.publish(topic, cmd);
+      logMsg(`Enviado [${topic}]: ${cmd}`);
+    }
+
+    function connectMqtt() {
+      const host = document.getElementById("brokerHost").value.trim();
+      const port = document.getElementById("brokerPort").value.trim();
+      const base = document.getElementById("baseTopic").value.trim();
+      const url = `wss://${host}:${port}/mqtt`;
+
+      setConnectionBadge("Conectando...", false);
+      logMsg(`Conectando a ${url}...`);
+
+      if (client) {
+        try { client.end(true); } catch (_) {}
+      }
+
+      client = mqtt.connect(url, {
+        clientId: "mob_sup_" + Math.random().toString(16).slice(2, 8),
+        clean: true,
+        reconnectPeriod: 4000
+      });
+
+      client.on("connect", () => {
+        setConnectionBadge("Conectado", true);
+        logMsg("Conectado ao Broker MQTT!");
+        client.subscribe(`${base}/#`, (err) => {
+          if (!err) logMsg(`Assinado: ${base}/#`);
+        });
+      });
+
+      client.on("message", (topic, payload) => {
+        const msgStr = payload.toString().trim();
+        const baseTopic = document.getElementById("baseTopic").value.trim();
+        const rel = topic.startsWith(baseTopic + "/") ? topic.slice(baseTopic.length + 1) : topic;
+
+        const relayMatch = rel.match(/^rele\/([1-6])\/state$/);
+        if (relayMatch) {
+          const idx = Number(relayMatch[1]) - 1;
+          relayStates[idx] = msgStr.toUpperCase() === "ON" || msgStr === "1";
+          renderRelays();
+          return;
+        }
+
+        const diMatch = rel.match(/^di\/([1-4])\/state$/);
+        if (diMatch) {
+          const next = [...diStates];
+          next[Number(diMatch[1]) - 1] = Number(msgStr) === 1 ? 1 : 0;
+          renderDigitalInputs(next);
+          return;
+        }
+
+        const aiMatch = rel.match(/^ai\/([1-2])\/value$/);
+        if (aiMatch) {
+          updateAnalogDisplay(Number(aiMatch[1]), Number(msgStr), null);
+          return;
+        }
+
+        if (rel === "ultrassom/distancia") {
+          updateDistanceDisplay(msgStr);
+          return;
+        }
+
+        if (rel === "telemetria") {
+          try {
+            const data = JSON.parse(msgStr);
+            if (Array.isArray(data.di)) renderDigitalInputs(data.di);
+            if (Array.isArray(data.ai_raw)) {
+              for (let i = 0; i < data.ai_raw.length; i++) {
+                const v = Array.isArray(data.ai_volt) ? data.ai_volt[i] : null;
+                updateAnalogDisplay(i + 1, data.ai_raw[i], v);
+              }
+            }
+            if (data.distancia_cm !== undefined) updateDistanceDisplay(data.distancia_cm);
+            if (data.rssi !== undefined) {
+              document.getElementById("rssiBadge").textContent = `RSSI: ${data.rssi} dBm`;
+            }
+          } catch (e) {
+            logMsg(`Erro JSON: ${e.message}`);
+          }
+          return;
+        }
+
+        logMsg(`[${rel}] ${msgStr}`);
+      });
+
+      client.on("error", (err) => {
+        setConnectionBadge("Erro", false);
+        logMsg(`Erro MQTT: ${err.message}`);
+      });
+
+      client.on("close", () => {
+        setConnectionBadge("Desconectado", false);
+      });
+    }
+
+    function disconnectMqtt() {
+      if (client) {
+        client.end(true);
+        client = null;
+      }
+      setConnectionBadge("Desconectado", false);
+      logMsg("Desconectado do Broker MQTT.");
+    }
+
+    function toggleSimMode() {
+      simMode = !simMode;
+      const btn = document.getElementById("btnSim");
+      btn.textContent = simMode ? "Demo: ON" : "Demo: OFF";
+      btn.className = simMode
+        ? "px-3 py-2 rounded-xl text-xs font-bold bg-amber-500/20 active:scale-95 border border-amber-400/50 text-amber-300 transition"
+        : "px-3 py-2 rounded-xl text-xs font-bold bg-slate-800 active:scale-95 border border-slate-700 text-slate-200 transition";
+
+      if (simMode) {
+        logMsg("Modo Demo ativado (simulação local de sensores).");
+        document.getElementById("rssiBadge").textContent = "RSSI: -58 dBm";
+        simInterval = setInterval(() => {
+          const r1 = Math.floor(Math.random() * 4096);
+          const r2 = Math.floor(Math.random() * 4096);
+          updateAnalogDisplay(1, r1, (r1 / 4095) * 3.3);
+          updateAnalogDisplay(2, r2, (r2 / 4095) * 3.3);
+          updateDistanceDisplay(15 + Math.random() * 260);
+          renderDigitalInputs([
+            Math.random() > 0.7 ? 1 : 0,
+            Math.random() > 0.8 ? 1 : 0,
+            Math.random() > 0.9 ? 1 : 0,
+            0
+          ]);
+        }, 2000);
+      } else {
+        clearInterval(simInterval);
+        logMsg("Modo Demo desativado.");
+      }
+    }
+
+    updateBrokerSummary();
+    renderRelays();
+    renderDigitalInputs();
+  </script>
+</body>
+</html>
